@@ -1,0 +1,92 @@
+#!/usr/bin/env perl
+
+use strict;
+
+$|=1;
+
+use Device::SerialPort;
+use Time::HiRes qw(usleep nanosleep);
+
+use feature "state";
+
+my $file = shift || die("Gcode file not specified");
+
+my $port = new Device::SerialPort("/dev/ttyUSB0");
+
+if (!$port) {
+    die("Unable to open /dev/ttyUSB0: $!");
+}
+
+$port->baudrate(115200) || die("Unable to set baud rate: $!");
+
+my $ready = 0;
+while ($ready == 0) {
+    my $l = getLine($port);
+    if ($l ne "") {
+        if ($l =~ /^echo:\s+(.*)$/) {
+            if ($1 eq "External Reset") {
+                $ready = 1;
+            } else {
+                print "	$1\n";
+            }
+        }
+    }
+}
+
+
+sleep(1);
+
+open(IN, "<$file") || die("Unable to open $file for reading: $!");
+
+while (my $line = <IN>) {
+    chomp($line);
+    if ($line =~ /^(.*);(.*)$/) {
+        $line = $1;
+    }
+    if ($line ne "") {
+        print "$line\n";
+        my $ok = 0;
+        sendCommand($port, $line);
+        while ($ok == 0) {
+            my $l = getLine($port);
+            if ($l ne "") {
+                if ($l eq "ok") {
+                    $ok = 1;
+                }
+                if ($l =~ /^echo:\s+(.*)$/) {
+                    print "\n	$1";
+                }
+                if ($l =~ /T:(.*)\/(.*)B:(.*)\/(.*)@:(.*)B@(.*)/) {
+                    printf("\rHot end: %5.2f / %5.2f Bed: %5.2f / %5.2f   ", 
+                        $1, $2, $3, $4);
+                }
+
+            }
+        }
+    }
+}
+
+close(IN);
+
+
+sub getLine($) {
+    my ($port) = @_;
+    state $line = "";
+    my $char = $port->read(1);
+    if ($char eq "\n") {
+        my $ol = $line;
+        $line = "";
+        return $ol;
+    }
+    if ($char ge " ") {
+        $line .= $char;
+    }
+    return "";
+}
+
+sub sendCommand($$) {
+    my $port = shift;
+    my $cmd = shift;
+    $port->write("$cmd\r") || die("Error sending code: $!");
+}
+

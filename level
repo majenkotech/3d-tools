@@ -1,0 +1,174 @@
+#!/usr/bin/perl
+
+use strict;
+
+use Device::SerialPort;
+use Gtk2;
+use Time::HiRes qw(usleep nanosleep);
+
+use feature 'state';
+
+my $topmargin = 0;
+my $panelwidth = 64;
+
+my $relays;
+my $relayStates;
+
+my $red = Gtk2::Gdk::Color->new(0xFFFF, 0x8888, 0x8888);
+my $redH = Gtk2::Gdk::Color->new(0xFFFF, 0x2222, 0x2222);
+my $green = Gtk2::Gdk::Color->new(0x8888, 0xFFFF, 0x8888);
+my $greenH = Gtk2::Gdk::Color->new(0, 0xFFFF, 0);
+my $blue = Gtk2::Gdk::Color->new(0x8888, 0x8888, 0xFFFF);
+my $blueH = Gtk2::Gdk::Color->new(0x4444, 0x4444, 0xFFFF);
+
+my $bg = Gtk2::Gdk::Color->new(0xFFFF / 255 * 60, 0xFFFF / 255 * 59, 0xFFFF / 255 * 55);
+my $bgH = Gtk2::Gdk::Color->new(0xFFFF / 255 * (60+5), 0xFFFF / 255 * (59+5), 0xFFFF / 255 * (55+5));
+
+Gtk2->init;
+
+my $port = new Device::SerialPort("/dev/ttyUSB0");
+
+if (!$port) {
+    die("Unable to open /dev/ttyUSB0: $!");
+}
+
+$port->baudrate(115200) || die("Unable to set baud rate");
+
+my $window = new Gtk2::Window;
+$window->realize();
+#$window->set_type_hint('dock');
+
+$window->signal_connect(delete_event => sub { return 0; });
+$window->signal_connect(destroy => sub { Gtk2->main_quit; });
+
+
+my $strut1 = Gtk2::Gdk::Atom -> intern("_NET_WM_STRUT", 0);
+my $cardinal1 = Gtk2::Gdk::Atom -> new("CARDINAL");
+
+$window->window()->property_change(
+    $strut1, $cardinal1, Gtk2::Gdk::ULONGS, "replace", 0, $panelwidth, 0, 0);
+
+my $screen = Gtk2::Gdk::Screen->get_default;
+
+my $panel = new Gtk2::VBox(0, 0);
+
+$relays->{'Home'} = new Gtk2::Button("Home");
+$relays->{'Home'}->signal_connect(clicked => sub { sendCommand('G28 F10000'); });
+
+$relays->{'Point 1'} = new Gtk2::Button("Point 1");
+$relays->{'Point 1'}->signal_connect(clicked => sub { 
+    sendCommand('G1 X0 Y90 Z10 F10000'); 
+    sendCommand('G0 X0 Y90 Z0'); 
+});
+
+$relays->{'Point 2'} = new Gtk2::Button("Point 2");
+$relays->{'Point 2'}->signal_connect(clicked => sub { 
+    sendCommand('G1 X78 Y-45 Z10 F10000'); 
+    sendCommand('G0 X78 Y-45 Z0'); 
+});
+
+$relays->{'Point 3'} = new Gtk2::Button("Point 3");
+$relays->{'Point 3'}->signal_connect(clicked => sub { 
+    sendCommand('G1 X-78 Y-45 Z10 F10000'); 
+    sendCommand('G0 X-78 Y-45 Z0'); 
+});
+
+$relays->{'Center'} = new Gtk2::Button("Center");
+$relays->{'Center'}->signal_connect(clicked => sub { 
+    sendCommand('G1 X0 Y0 Z10 F10000'); 
+    sendCommand('G0 X0 Y0 Z0'); 
+});
+
+
+$relays->{'Hover'} = new Gtk2::Button("Hover");
+$relays->{'Hover'}->signal_connect(clicked => sub { sendCommand('G1 X0 Y0 Z10 F10000'); });
+
+$relays->{'Warm'} = new Gtk2::Button("On (80)");
+$relays->{'Warm'}->signal_connect(clicked => sub { sendCommand('M104 S80'); });
+
+$relays->{'Off'} = new Gtk2::Button("Off");
+$relays->{'Off'}->signal_connect(clicked => sub { sendCommand('M104 S0'); });
+
+$relays->{'Test'} = new Gtk2::Button("Test");
+$relays->{'Test'}->signal_connect(clicked => sub {
+    sendCommand('G28');
+    sendCommand('M140 S60');
+    sendCommand('M109 S210');
+    sendCommand('G1 X0 Y90 Z10 F10000');
+    sendCommand('G0 X0 Y90 Z0.3 F3600');
+    sendCommand('G2 X78 Y-45 I0 J-90 E10 F1800');
+    sendCommand('G2 X-78 Y-45 I-78 J45 E10 F1800');
+    sendCommand('G2 X0 Y90 I78 J45 E10 F1800');
+    sendCommand('G1 X0 Y0 E10 F1800');
+    sendCommand('G1 X78 Y-45 E10 F1800');
+    sendCommand('G1 X78 Y-45 Z1 F1800');
+    sendCommand('G1 X0 Y0 E10 F3600');
+    sendCommand('G1 X0 Y0 Z0.3 E10 F1800');
+    sendCommand('G1 X-78 Y-45 E10 F1800');
+    sendCommand('M104 S0');
+    sendCommand('M140 S0');
+    sendCommand('G28');
+});
+
+$panel->pack_end($relays->{'Home'}, 0, 0, 0);
+$panel->pack_end($relays->{'Point 1'}, 0, 0, 0);
+$panel->pack_end($relays->{'Point 2'}, 0, 0, 0);
+$panel->pack_end($relays->{'Point 3'}, 0, 0, 0);
+$panel->pack_end($relays->{'Center'}, 0, 0, 0);
+$panel->pack_end($relays->{'Hover'}, 0, 0, 0);
+$panel->pack_end($relays->{'Warm'}, 0, 0, 0);
+$panel->pack_end($relays->{'Off'}, 0, 0, 0);
+$panel->pack_end($relays->{'Test'}, 0, 0, 0);
+
+$window->add($panel);
+
+$window->set_title("Level Control Panel");
+$window->show_all();
+#my $sw = $screen->get_width();
+#my $sh = $screen->get_height();
+#my ($ww, $wh) = $window->get_size();
+#$window->move($sw - $panelwidth, $topmargin);
+#$window->set_size_request($panelwidth, $sh - $topmargin);
+$window->modify_bg('normal', $bg);
+
+my $cnt = 0;
+while(1) {
+    my $line = getLine($port);
+    if ($line ne "") {
+        print "[" . $line . "]\n";
+    }
+    Gtk2->main_iteration_do(0);
+    usleep(1000);
+    $cnt++;
+    if ($cnt >= 10000) {
+        sendCommand("M105");
+        $cnt = 0;
+    }
+}
+
+sub getLine($) {
+    my ($port) = @_;
+    state $line = "";
+    my $char = $port->read(1);
+    if ($char eq "\n") {
+        my $ol = $line;
+        $line = "";
+        return $ol;
+    }
+    if ($char ge " ") {
+        $line .= $char;
+    }
+    return "";
+}
+
+sub sendCommand($) {
+    my $cmd = shift;
+    print ">>> $cmd\n";
+    $port->write("$cmd\r") || reconnect();
+}
+
+sub reconnect() {
+    $port->close();
+    $port = new Device::SerialPort("/dev/ttyUSB0") || die("Cannot reopen");
+    $port->baudrate(115200);
+}
