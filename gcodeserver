@@ -9,6 +9,7 @@ use Time::HiRes qw(usleep nanosleep);
 
 use feature "state";
 
+resetPrinter();
 
 while (1) {
     my @files;
@@ -31,14 +32,31 @@ while (1) {
 }
 
 
+sub openPort() {
+    my $port = new Device::SerialPort("/dev/kossel");
+
+    if (!$port) {
+        die("Unable to open /dev/kossel: $!");
+    }
+
+    $port->baudrate(115200) || die("Unable to set baud rate: $!");
+    return $port;
+}
+
+sub resetPrinter() {
+    my $port = openPort();
+    sleep(3);
+    sendCommand($port, "M117 Print Server Ready.");
+    $port->close();
+}
 
 sub sendFile($) {
     my $file = shift;
 
-    my $port = new Device::SerialPort("/dev/ttyUSB0");
+    my $port = new Device::SerialPort("/dev/kossel");
 
     if (!$port) {
-        die("Unable to open /dev/ttyUSB0: $!");
+        die("Unable to open /dev/kossel: $!");
     }
 
     $port->baudrate(115200) || die("Unable to set baud rate: $!");
@@ -62,33 +80,61 @@ sub sendFile($) {
 
     open(IN, "<$file") || die("Unable to open $file for reading: $!");
 
+    my $totalLines = 0;
+
     while (my $line = <IN>) {
         chomp($line);
         if ($line =~ /^(.*);(.*)$/) {
             $line = $1;
         }
         if ($line ne "") {
-            print "$line\n";
-            my $ok = 0;
-            sendCommand($port, $line);
-            while ($ok == 0) {
-                my $l = getLine($port);
-                if ($l ne "") {
-                    if ($l eq "ok") {
-                        $ok = 1;
-                    }
-                    if ($l =~ /^echo:\s+(.*)$/) {
-                        print "\n	$1";
-                    }
-                    if ($l =~ /T:(.*)\/(.*)B:(.*)\/(.*)@:(.*)B@(.*)/) {
-                        printf("\rHot end: %5.2f / %5.2f Bed: %5.2f / %5.2f   ", 
-                            $1, $2, $3, $4);
-                    }
-                }
-            }
+            $totalLines ++;
         }
     }
     close(IN);
+
+    my $thisLine = 0;
+    my $lastPct = "";
+
+    open(IN, "<$file") || die("Unable to open $file for reading: $!");
+
+    while (my $line = <IN>) {
+        chomp($line);
+        if ($line =~ /^(.*);(.*)$/) {
+            $line = $1;
+        }
+        if ($line ne "") {
+            $thisLine++;
+            my $pct = ($thisLine / $totalLines) * 100;
+            my $pcts = sprintf("M117 Printing...     %3d%", $pct);
+            if ($pcts ne $lastPct) {
+                $lastPct = $pcts;
+                sendCommand($port, $pcts);
+            }
+            sendCommand($port, $line);
+        }
+
+        # Check to see if the file went away. If it did then abort.
+        if (! -f $file) { 
+            close(IN);
+            abort($port);
+            $port->close();
+            return;
+        }
+    }
+    close(IN);
+    $port->close();
+}
+
+sub abort($) {
+    my $port = shift;
+    sendCommand($port, "M117 Aborted");
+    sendCommand($port, "M107");
+    sendCommand($port, "M104 S0");
+    sendCommand($port, "M140 S0");
+    sendCommand($port, "G91");
+    sendCommand($port, "G1 E-1 F300");
+    sendCommand($port, "G28");
 }
 
 sub getLine($) {
@@ -110,5 +156,17 @@ sub sendCommand($$) {
     my $port = shift;
     my $cmd = shift;
     $port->write("$cmd\r") || die("Error sending code: $!");
+    my $ok = 0;
+    while ($ok == 0) {
+        my $l = getLine($port);
+        if ($l ne "") {
+            if ($l eq "ok") {
+                $ok = 1;
+            }
+            if ($l =~ /^echo:\s+(.*)$/) {
+                print "	$1\n";
+            }
+        }
+    }
 }
 
