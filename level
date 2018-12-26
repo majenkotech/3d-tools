@@ -5,13 +5,24 @@ use strict;
 use Device::SerialPort;
 use Gtk2;
 use Time::HiRes qw(usleep nanosleep);
+use Getopt::Std;
+use Cwd 'abs_path';
+use Data::Dumper;
+use Gtk2::Ex::Graph::GD;
 
 use feature 'state';
 
-my $topmargin = 0;
-my $panelwidth = 64;
+my %opts;
+$opts{'v'} = '10c4';
+$opts{'p'} = 'ea60';
+$opts{'s'} = '0001';
 
-my $relays;
+getopts('v:p:s:', \%opts);
+
+my $portname = getPort($opts{'v'}, $opts{'p'}, $opts{'s'});
+
+
+my $controls;
 my $relayStates;
 
 my $red = Gtk2::Gdk::Color->new(0xFFFF, 0x8888, 0x8888);
@@ -27,10 +38,10 @@ my $bgH = Gtk2::Gdk::Color->new(0xFFFF / 255 * (60+5), 0xFFFF / 255 * (59+5), 0x
 Gtk2->init;
 
 testlock();
-my $port = new Device::SerialPort("/dev/ttyUSB0");
+my $port = new Device::SerialPort("/dev/$portname");
 
 if (!$port) {
-    die("Unable to open /dev/ttyUSB0: $!");
+    die("Unable to open /dev/$portname: $!");
 }
 
 lockport();
@@ -39,99 +50,102 @@ $port->baudrate(115200) || die("Unable to set baud rate");
 
 my $window = new Gtk2::Window;
 $window->realize();
-#$window->set_type_hint('dock');
 
-#$window->signal_connect(delete_event => sub { return 0; });
 $window->signal_connect(destroy => sub { exit(0); Gtk2->main_quit; });
 
 
 my $strut1 = Gtk2::Gdk::Atom -> intern("_NET_WM_STRUT", 0);
 my $cardinal1 = Gtk2::Gdk::Atom -> new("CARDINAL");
 
-$window->window()->property_change(
-    $strut1, $cardinal1, Gtk2::Gdk::ULONGS, "replace", 0, $panelwidth, 0, 0);
-
 my $screen = Gtk2::Gdk::Screen->get_default;
+
+
 
 my $panel = new Gtk2::VBox(0, 0);
 
-my $tv = new Gtk2::TextView;
-$tv->set_editable(0);
-$tv->set_cursor_visible(0);
-my $tb = $tv->get_buffer();
+my $topbox = new Gtk2::HBox(0, 0);
 
-my $scroll = new Gtk2::ScrolledWindow;
-$scroll->add($tv);
+my $graph = Gtk2::Ex::Graph::GD->new(500, 300, 'bars');
+my $gdata = GD::Graph::Data->new([
+    ["Extruder", "Bed"],
+    [0, 0],
+    [0, 0],
+    [0, 0]
+]);
+
+my $gimage = $graph->get_image($gdata);
+
+$topbox->pack_start($gimage, 0, 0, 0);
 
 
-$relays->{'01Home'} = new Gtk2::Button("Home");
-$relays->{'01Home'}->signal_connect(clicked => sub { sendCommand('G28 F10000'); });
+$controls->{'01Home'} = new Gtk2::Button("Home");
+$controls->{'01Home'}->signal_connect(clicked => sub { sendCommand('G28 F10000'); });
 
-$relays->{'02Point 1'} = new Gtk2::Button("Point 1");
-$relays->{'02Point 1'}->signal_connect(clicked => sub { 
+$controls->{'02Point 1'} = new Gtk2::Button("Point 1");
+$controls->{'02Point 1'}->signal_connect(clicked => sub { 
     sendCommand('G1 X0 Y90 Z10 F10000'); 
     sendCommand('G0 X0 Y90 Z0'); 
 });
 
-$relays->{'03Point 2'} = new Gtk2::Button("Point 2");
-$relays->{'03Point 2'}->signal_connect(clicked => sub { 
+$controls->{'03Point 2'} = new Gtk2::Button("Point 2");
+$controls->{'03Point 2'}->signal_connect(clicked => sub { 
     sendCommand('G1 X78 Y-45 Z10 F10000'); 
     sendCommand('G0 X78 Y-45 Z0'); 
 });
 
-$relays->{'04Point 3'} = new Gtk2::Button("Point 3");
-$relays->{'04Point 3'}->signal_connect(clicked => sub { 
+$controls->{'04Point 3'} = new Gtk2::Button("Point 3");
+$controls->{'04Point 3'}->signal_connect(clicked => sub { 
     sendCommand('G1 X-78 Y-45 Z10 F10000'); 
     sendCommand('G0 X-78 Y-45 Z0'); 
 });
 
-$relays->{'05Center'} = new Gtk2::Button("Center");
-$relays->{'05Center'}->signal_connect(clicked => sub { 
+$controls->{'05Center'} = new Gtk2::Button("Center");
+$controls->{'05Center'}->signal_connect(clicked => sub { 
     sendCommand('G1 X0 Y0 Z10 F10000'); 
     sendCommand('G0 X0 Y0 Z0'); 
 });
 
 
-$relays->{'06Hover'} = new Gtk2::Button("Hover");
-$relays->{'06Hover'}->signal_connect(clicked => sub { sendCommand('G1 X0 Y0 Z10 F10000'); });
+$controls->{'06Hover'} = new Gtk2::Button("Hover");
+$controls->{'06Hover'}->signal_connect(clicked => sub { sendCommand('G1 X0 Y0 Z10 F10000'); });
 
-$relays->{'11Warm'} = new Gtk2::Button("On (175)");
-$relays->{'11Warm'}->signal_connect(clicked => sub { sendCommand('M104 S175'); });
+$controls->{'11Warm'} = new Gtk2::Button("On (175)");
+$controls->{'11Warm'}->signal_connect(clicked => sub { sendCommand('M104 S175'); });
 
-$relays->{'12Hot'} = new Gtk2::Button("On (200)");
-$relays->{'12Hot'}->signal_connect(clicked => sub { sendCommand('M104 S200'); });
+$controls->{'12Hot'} = new Gtk2::Button("On (200)");
+$controls->{'12Hot'}->signal_connect(clicked => sub { sendCommand('M104 S200'); });
 
-$relays->{'13Boil'} = new Gtk2::Button("On (220)");
-$relays->{'13Boil'}->signal_connect(clicked => sub { sendCommand('M104 S220'); });
+$controls->{'13Boil'} = new Gtk2::Button("On (220)");
+$controls->{'13Boil'}->signal_connect(clicked => sub { sendCommand('M104 S220'); });
 
-$relays->{'10Off'} = new Gtk2::Button("Off");
-$relays->{'10Off'}->signal_connect(clicked => sub { sendCommand('M104 S0'); });
+$controls->{'10Off'} = new Gtk2::Button("Off");
+$controls->{'10Off'}->signal_connect(clicked => sub { sendCommand('M104 S0'); });
 
-$relays->{'20Tune'} = new Gtk2::Button("Tune");
-$relays->{'20Tune'}->signal_connect(clicked => sub {
+$controls->{'20Tune'} = new Gtk2::Button("Tune");
+$controls->{'20Tune'}->signal_connect(clicked => sub {
     sendCommand('M303 E0 S210 C8');
 });
 
-$relays->{'30Extrude1'} = new Gtk2::Button("Extrude 1mm");
-$relays->{'30Extrude1'}->signal_connect(clicked => sub {
+$controls->{'30Extrude1'} = new Gtk2::Button("Extrude 1mm");
+$controls->{'30Extrude1'}->signal_connect(clicked => sub {
     sendCommand('G92 E0');
     sendCommand('G1 E1 F120');
 });
 
-$relays->{'31Extrude10'} = new Gtk2::Button("Extrude 10mm");
-$relays->{'31Extrude10'}->signal_connect(clicked => sub {
+$controls->{'31Extrude10'} = new Gtk2::Button("Extrude 10mm");
+$controls->{'31Extrude10'}->signal_connect(clicked => sub {
     sendCommand('G92 E0');
     sendCommand('G1 E10 F120');
 });
 
-$relays->{'32Load'} = new Gtk2::Button("Load");
-$relays->{'32Load'}->signal_connect(clicked => sub {
+$controls->{'32Load'} = new Gtk2::Button("Load");
+$controls->{'32Load'}->signal_connect(clicked => sub {
     sendCommand('G92 E0');
     sendCommand('G1 E100 F6000');
 });
 
-$relays->{'32UnLoad'} = new Gtk2::Button("UnLoad");
-$relays->{'32UnLoad'}->signal_connect(clicked => sub {
+$controls->{'32UnLoad'} = new Gtk2::Button("UnLoad");
+$controls->{'32UnLoad'}->signal_connect(clicked => sub {
     sendCommand('G92 E0');
     sendCommand('G1 E-100 F6000');
 });
@@ -155,10 +169,10 @@ $hb->pack_end($rodset, 0, 0, 0);
 
 $panel->pack_end($hb, 0, 0, 0);
 
-$panel->pack_start($scroll, 1, 1, 0);
+$panel->pack_start($topbox, 1, 1, 0);
 
-foreach my $k (sort keys %{$relays}) {
-    $panel->pack_start($relays->{$k}, 0, 0, 0);
+foreach my $k (sort keys %{$controls}) {
+    $panel->pack_start($controls->{$k}, 0, 0, 0);
 }
 
 
@@ -166,11 +180,6 @@ $window->add($panel);
 
 $window->set_title("Level Control Panel");
 $window->show_all();
-#my $sw = $screen->get_width();
-#my $sh = $screen->get_height();
-#my ($ww, $wh) = $window->get_size();
-#$window->move($sw - $panelwidth, $topmargin);
-#$window->set_size_request($panelwidth, $sh - $topmargin);
 $window->modify_bg('normal', $bg);
 
 my $kp = 0;
@@ -179,11 +188,83 @@ my $kd = 0;
 
 #sendCommand("M503");
 
+my $getTemp = 0;
+my $tempticker = Glib::Timeout->add(1000, sub { $getTemp = 1; } );
+
+my $temps;
+
 while(1) {
+
+    if ($getTemp == 1) {
+        $getTemp = 0;
+        sendCommand("M105");
+    }
+
     my $line = getLine($port);
     if ($line ne "") {
-        $tb->insert($tb->get_end_iter(), "[" . $line . "]\n");
-        scrollDown();
+        my $linenospace = $line;
+        $linenospace =~ s/\s*\/\s*/\//g;
+        if ($linenospace =~ /^ok T:/) {
+
+            my @bits = split(/\s+/, $linenospace);
+
+            foreach my $bit (@bits) {
+                if ($bit eq "ok") {
+                    next;
+                }
+
+                if ($bit =~ /^(.*):(.*)$/) {
+                    my $k = $1;
+                    my $v = $2;
+
+
+                    if ($k eq "T") {
+                        if ($v =~ /([0-9\.]+)\/([0-9\.]+)/) {
+                            $gdata->set_y(0, 0, $1);
+                            $gdata->set_y(0, 1, $2);
+                            $temps->{extruder}->{current} = $1;
+                            $temps->{extruder}->{setpoint} = $2;
+                        }
+                        next;
+                    } 
+
+                    if ($k eq "B") {
+                        if ($v =~ /([0-9\.]+)\/([0-9\.]+)/) {
+                            $temps->{bed}->{current} = $1;
+                            $temps->{bed}->{setpoint} = $2;
+                        }
+                        next;
+                    } 
+
+                    if ($k eq "@") {
+                        $temps->{extruder}->{power} = $v;
+                        next;
+                    }
+                    
+                    if ($k eq "B@") {
+                        $temps->{bed}->{power} = $v;
+                        next;
+                    }
+                }
+            }
+
+            my $gdata = GD::Graph::Data->new([
+                ["Extruder", "Bed"],
+                [$temps->{extruder}->{current},  $temps->{bed}->{current}],
+                [$temps->{extruder}->{setpoint}, $temps->{bed}->{setpoint}],
+                [$temps->{extruder}->{power},    $temps->{bed}->{power}]
+            ]);
+            $topbox->remove($gimage);
+            $graph = Gtk2::Ex::Graph::GD->new(500, 300, 'bars');
+            $gimage = $graph->get_image($gdata);
+            $topbox->pack_start($gimage, 0, 0, 1);
+
+#            scrollDown($ecroll);
+#[ok T:57.8 /175.0 B:20.7 /0.0 @:127 B@:0]
+#        } else {
+#            $tb->insert($tb->get_end_iter(), $line . "\n");
+#            scrollDown($scroll);
+        }
         if ($line =~ /^#define\s+DEFAULT_Kp\s+(.*)$/) {
             $kp = $1;
         }
@@ -221,45 +302,95 @@ sub getLine($) {
 
 sub sendCommand($) {
     my $cmd = shift;
-    $tb->insert($tb->get_end_iter, ">>> $cmd\n");
+#    $tb->insert($tb->get_end_iter, ">>> $cmd\n");
     $port->write("$cmd\r") || reconnect();
 }
 
 sub reconnect() {
     $port->close();
     unlockport();
-    $port = new Device::SerialPort("/dev/kossel") || die("Cannot reopen");
+    $port = new Device::SerialPort("/dev/$portname") || die("Cannot reopen");
     $port->baudrate(115200);
     lockport();
 }
 
-sub scrollDown() {
-    my $adj = $scroll->get_vadjustment;
-    $adj->set_value($adj->upper);
-}
+#sub scrollDown($) {
+#    my $w = shift;
+#    my $adj = $w->get_vadjustment;
+#    $adj->set_value($adj->upper);
+#}
 
 sub unlockport() {
-    unlink("/var/lock/LCK..kossel");
+    unlink("/var/lock/LCK..$portname");
 }
 
 sub lockport() {
-    open(LCK, ">/var/lock/LCK..kossel");
+    open(LCK, ">/var/lock/LCK..$portname");
     print LCK "$$\n";
     close(LCK);
 }
 
 sub testlock() {
-    if ( -f "/var/lock/LCK..kossel") {
-        open(LCK, "</var/lock/LCK..kossel");
+    if ( -f "/var/lock/LCK..$portname") {
+        open(LCK, "</var/lock/LCK..$portname");
         my $pid = <LCK>;
         close(LCK);
         chomp($pid);
         if (! kill(0, $pid)) {
-            unlink("/var/lock/LCK..kossel");
+            unlink("/var/lock/LCK..$portname");
             return 0;
         }
-        die("/dev/kossel is locked by PID $pid");
+        die("/dev/$portname is locked by PID $pid");
         return 1;
     }
     return 0;
+}
+
+sub getPort($$$) {
+    my $vid = shift;
+    my $pid = shift;
+    my $ser = shift;
+
+    my $found = "";
+
+    opendir(D, "/sys/bus/usb-serial/devices");
+    while (my $f = readdir(D)) {
+        if ($f =~ /^tty(.*)$/) {
+            my $dest = readlink("/sys/bus/usb-serial/devices/$f");
+            $dest = "/sys/bus/usb-serial/devices/$dest";
+            $dest = abs_path($dest);
+
+            my @paths = split(/\//, $dest);
+
+            while (@paths > 0) {
+                pop(@paths);
+                my $dir = join("/", @paths);
+                if (-f "$dir/idVendor") {
+
+                    my $idVendor = getContent("$dir/idVendor");
+                    my $idProduct = getContent("$dir/idProduct");
+                    my $serial = getContent("$dir/serial");
+
+
+                    if (($idVendor eq $opts{'v'}) &&
+                        ($idProduct eq $opts{'p'}) &&
+                        ($serial eq $opts{'s'})) {
+                            $found = $f;
+                            last;
+                    }
+                }
+            }
+        }
+    }
+    closedir(D);
+    return $found;
+}
+
+sub getContent($) {
+    my $file = shift;
+    open(F, "<$file");
+    my $l = <F>;
+    chomp($l);
+    close(F);
+    return $l;
 }

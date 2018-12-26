@@ -1,0 +1,62 @@
+#!/usr/bin/perl
+
+use strict;
+
+use Getopt::Std;
+use Data::Dumper;
+use Cwd 'abs_path';
+
+my %opts;
+
+getopts('v:p:s:', \%opts);
+
+print getPort($opts{'v'}, $opts{'p'}, $opts{'s'}) . "\n";
+
+sub getPort($$$) {
+    my $vid = shift;
+    my $pid = shift;
+    my $ser = shift;
+
+    my $found = "";
+
+    opendir(D, "/sys/bus/usb-serial/devices");
+    while (my $f = readdir(D)) {
+        if ($f =~ /^tty(.*)$/) {
+            my $dest = readlink("/sys/bus/usb-serial/devices/$f");
+            $dest = "/sys/bus/usb-serial/devices/$dest";
+            $dest = abs_path($dest);
+
+            my @paths = split(/\//, $dest);
+
+            while (@paths > 0) {
+                pop(@paths);
+                my $dir = join("/", @paths);
+                if (-f "$dir/idVendor") {
+
+                    my $idVendor = getContent("$dir/idVendor");
+                    my $idProduct = getContent("$dir/idProduct");
+                    my $serial = getContent("$dir/serial");
+
+
+                    if (($idVendor eq $opts{'v'}) &&
+                        ($idProduct eq $opts{'p'}) &&
+                        ($serial eq $opts{'s'})) {
+                            $found = $f;
+                            last;
+                    }
+                }
+            }
+        }
+    }
+    closedir(D);
+    return $found;
+}
+
+sub getContent($) {
+    my $file = shift;
+    open(F, "<$file");
+    my $l = <F>;
+    chomp($l);
+    close(F);
+    return $l;
+}
