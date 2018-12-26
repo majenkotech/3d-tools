@@ -26,11 +26,14 @@ my $bgH = Gtk2::Gdk::Color->new(0xFFFF / 255 * (60+5), 0xFFFF / 255 * (59+5), 0x
 
 Gtk2->init;
 
+testlock();
 my $port = new Device::SerialPort("/dev/ttyUSB0");
 
 if (!$port) {
     die("Unable to open /dev/ttyUSB0: $!");
 }
+
+lockport();
 
 $port->baudrate(115200) || die("Unable to set baud rate");
 
@@ -38,8 +41,8 @@ my $window = new Gtk2::Window;
 $window->realize();
 #$window->set_type_hint('dock');
 
-$window->signal_connect(delete_event => sub { return 0; });
-$window->signal_connect(destroy => sub { Gtk2->main_quit; });
+#$window->signal_connect(delete_event => sub { return 0; });
+$window->signal_connect(destroy => sub { exit(0); Gtk2->main_quit; });
 
 
 my $strut1 = Gtk2::Gdk::Atom -> intern("_NET_WM_STRUT", 0);
@@ -52,73 +55,112 @@ my $screen = Gtk2::Gdk::Screen->get_default;
 
 my $panel = new Gtk2::VBox(0, 0);
 
-$relays->{'Home'} = new Gtk2::Button("Home");
-$relays->{'Home'}->signal_connect(clicked => sub { sendCommand('G28 F10000'); });
+my $tv = new Gtk2::TextView;
+$tv->set_editable(0);
+$tv->set_cursor_visible(0);
+my $tb = $tv->get_buffer();
 
-$relays->{'Point 1'} = new Gtk2::Button("Point 1");
-$relays->{'Point 1'}->signal_connect(clicked => sub { 
+my $scroll = new Gtk2::ScrolledWindow;
+$scroll->add($tv);
+
+
+$relays->{'01Home'} = new Gtk2::Button("Home");
+$relays->{'01Home'}->signal_connect(clicked => sub { sendCommand('G28 F10000'); });
+
+$relays->{'02Point 1'} = new Gtk2::Button("Point 1");
+$relays->{'02Point 1'}->signal_connect(clicked => sub { 
     sendCommand('G1 X0 Y90 Z10 F10000'); 
     sendCommand('G0 X0 Y90 Z0'); 
 });
 
-$relays->{'Point 2'} = new Gtk2::Button("Point 2");
-$relays->{'Point 2'}->signal_connect(clicked => sub { 
+$relays->{'03Point 2'} = new Gtk2::Button("Point 2");
+$relays->{'03Point 2'}->signal_connect(clicked => sub { 
     sendCommand('G1 X78 Y-45 Z10 F10000'); 
     sendCommand('G0 X78 Y-45 Z0'); 
 });
 
-$relays->{'Point 3'} = new Gtk2::Button("Point 3");
-$relays->{'Point 3'}->signal_connect(clicked => sub { 
+$relays->{'04Point 3'} = new Gtk2::Button("Point 3");
+$relays->{'04Point 3'}->signal_connect(clicked => sub { 
     sendCommand('G1 X-78 Y-45 Z10 F10000'); 
     sendCommand('G0 X-78 Y-45 Z0'); 
 });
 
-$relays->{'Center'} = new Gtk2::Button("Center");
-$relays->{'Center'}->signal_connect(clicked => sub { 
+$relays->{'05Center'} = new Gtk2::Button("Center");
+$relays->{'05Center'}->signal_connect(clicked => sub { 
     sendCommand('G1 X0 Y0 Z10 F10000'); 
     sendCommand('G0 X0 Y0 Z0'); 
 });
 
 
-$relays->{'Hover'} = new Gtk2::Button("Hover");
-$relays->{'Hover'}->signal_connect(clicked => sub { sendCommand('G1 X0 Y0 Z10 F10000'); });
+$relays->{'06Hover'} = new Gtk2::Button("Hover");
+$relays->{'06Hover'}->signal_connect(clicked => sub { sendCommand('G1 X0 Y0 Z10 F10000'); });
 
-$relays->{'Warm'} = new Gtk2::Button("On (80)");
-$relays->{'Warm'}->signal_connect(clicked => sub { sendCommand('M104 S80'); });
+$relays->{'11Warm'} = new Gtk2::Button("On (175)");
+$relays->{'11Warm'}->signal_connect(clicked => sub { sendCommand('M104 S175'); });
 
-$relays->{'Off'} = new Gtk2::Button("Off");
-$relays->{'Off'}->signal_connect(clicked => sub { sendCommand('M104 S0'); });
+$relays->{'12Hot'} = new Gtk2::Button("On (200)");
+$relays->{'12Hot'}->signal_connect(clicked => sub { sendCommand('M104 S200'); });
 
-$relays->{'Test'} = new Gtk2::Button("Test");
-$relays->{'Test'}->signal_connect(clicked => sub {
-    sendCommand('G28');
-    sendCommand('M140 S60');
-    sendCommand('M109 S210');
-    sendCommand('G1 X0 Y90 Z10 F10000');
-    sendCommand('G0 X0 Y90 Z0.3 F3600');
-    sendCommand('G2 X78 Y-45 I0 J-90 E10 F1800');
-    sendCommand('G2 X-78 Y-45 I-78 J45 E10 F1800');
-    sendCommand('G2 X0 Y90 I78 J45 E10 F1800');
-    sendCommand('G1 X0 Y0 E10 F1800');
-    sendCommand('G1 X78 Y-45 E10 F1800');
-    sendCommand('G1 X78 Y-45 Z1 F1800');
-    sendCommand('G1 X0 Y0 E10 F3600');
-    sendCommand('G1 X0 Y0 Z0.3 E10 F1800');
-    sendCommand('G1 X-78 Y-45 E10 F1800');
-    sendCommand('M104 S0');
-    sendCommand('M140 S0');
-    sendCommand('G28');
+$relays->{'13Boil'} = new Gtk2::Button("On (220)");
+$relays->{'13Boil'}->signal_connect(clicked => sub { sendCommand('M104 S220'); });
+
+$relays->{'10Off'} = new Gtk2::Button("Off");
+$relays->{'10Off'}->signal_connect(clicked => sub { sendCommand('M104 S0'); });
+
+$relays->{'20Tune'} = new Gtk2::Button("Tune");
+$relays->{'20Tune'}->signal_connect(clicked => sub {
+    sendCommand('M303 E0 S210 C8');
 });
 
-$panel->pack_end($relays->{'Home'}, 0, 0, 0);
-$panel->pack_end($relays->{'Point 1'}, 0, 0, 0);
-$panel->pack_end($relays->{'Point 2'}, 0, 0, 0);
-$panel->pack_end($relays->{'Point 3'}, 0, 0, 0);
-$panel->pack_end($relays->{'Center'}, 0, 0, 0);
-$panel->pack_end($relays->{'Hover'}, 0, 0, 0);
-$panel->pack_end($relays->{'Warm'}, 0, 0, 0);
-$panel->pack_end($relays->{'Off'}, 0, 0, 0);
-$panel->pack_end($relays->{'Test'}, 0, 0, 0);
+$relays->{'30Extrude1'} = new Gtk2::Button("Extrude 1mm");
+$relays->{'30Extrude1'}->signal_connect(clicked => sub {
+    sendCommand('G92 E0');
+    sendCommand('G1 E1 F120');
+});
+
+$relays->{'31Extrude10'} = new Gtk2::Button("Extrude 10mm");
+$relays->{'31Extrude10'}->signal_connect(clicked => sub {
+    sendCommand('G92 E0');
+    sendCommand('G1 E10 F120');
+});
+
+$relays->{'32Load'} = new Gtk2::Button("Load");
+$relays->{'32Load'}->signal_connect(clicked => sub {
+    sendCommand('G92 E0');
+    sendCommand('G1 E100 F6000');
+});
+
+$relays->{'32UnLoad'} = new Gtk2::Button("UnLoad");
+$relays->{'32UnLoad'}->signal_connect(clicked => sub {
+    sendCommand('G92 E0');
+    sendCommand('G1 E-100 F6000');
+});
+
+my $hb = new Gtk2::HBox;
+
+my $lab = new Gtk2::Label("Rod Length:");
+$hb->pack_start($lab, 0, 0, 0);
+
+
+my $rod = new Gtk2::Entry;
+$hb->pack_start($rod, 1, 1, 0);
+
+my $rodset = new Gtk2::Button("Set");
+$rodset->signal_connect(clicked => sub {
+    sendCommand("M665 L" . $rod->get_text);
+    sendCommand("M500");
+});
+
+$hb->pack_end($rodset, 0, 0, 0);
+
+$panel->pack_end($hb, 0, 0, 0);
+
+$panel->pack_start($scroll, 1, 1, 0);
+
+foreach my $k (sort keys %{$relays}) {
+    $panel->pack_start($relays->{$k}, 0, 0, 0);
+}
+
 
 $window->add($panel);
 
@@ -131,19 +173,35 @@ $window->show_all();
 #$window->set_size_request($panelwidth, $sh - $topmargin);
 $window->modify_bg('normal', $bg);
 
-my $cnt = 0;
+my $kp = 0;
+my $ki = 0;
+my $kd = 0;
+
+#sendCommand("M503");
+
 while(1) {
     my $line = getLine($port);
     if ($line ne "") {
-        print "[" . $line . "]\n";
+        $tb->insert($tb->get_end_iter(), "[" . $line . "]\n");
+        scrollDown();
+        if ($line =~ /^#define\s+DEFAULT_Kp\s+(.*)$/) {
+            $kp = $1;
+        }
+        if ($line =~ /^#define\s+DEFAULT_Ki\s+(.*)$/) {
+            $ki = $1;
+        }
+        if ($line =~ /^#define\s+DEFAULT_Kd\s+(.*)$/) {
+            $kd = $1;
+            sendCommand("M301 P$kp I$ki D$kd");
+            sendCommand("M500");
+        }
+        if ($line =~ /echo:\s+M665 L(.*)\s+R(.*)\s+S(.*)\s+A(.*)\s+B(.*)\s+C(.*)/) {
+            my $rodlength = $1;
+            $rod->set_text($rodlength);
+        }
     }
     Gtk2->main_iteration_do(0);
     usleep(1000);
-    $cnt++;
-    if ($cnt >= 10000) {
-        sendCommand("M105");
-        $cnt = 0;
-    }
 }
 
 sub getLine($) {
@@ -163,12 +221,45 @@ sub getLine($) {
 
 sub sendCommand($) {
     my $cmd = shift;
-    print ">>> $cmd\n";
+    $tb->insert($tb->get_end_iter, ">>> $cmd\n");
     $port->write("$cmd\r") || reconnect();
 }
 
 sub reconnect() {
     $port->close();
-    $port = new Device::SerialPort("/dev/ttyUSB0") || die("Cannot reopen");
+    unlockport();
+    $port = new Device::SerialPort("/dev/kossel") || die("Cannot reopen");
     $port->baudrate(115200);
+    lockport();
+}
+
+sub scrollDown() {
+    my $adj = $scroll->get_vadjustment;
+    $adj->set_value($adj->upper);
+}
+
+sub unlockport() {
+    unlink("/var/lock/LCK..kossel");
+}
+
+sub lockport() {
+    open(LCK, ">/var/lock/LCK..kossel");
+    print LCK "$$\n";
+    close(LCK);
+}
+
+sub testlock() {
+    if ( -f "/var/lock/LCK..kossel") {
+        open(LCK, "</var/lock/LCK..kossel");
+        my $pid = <LCK>;
+        close(LCK);
+        chomp($pid);
+        if (! kill(0, $pid)) {
+            unlink("/var/lock/LCK..kossel");
+            return 0;
+        }
+        die("/dev/kossel is locked by PID $pid");
+        return 1;
+    }
+    return 0;
 }

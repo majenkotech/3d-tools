@@ -36,15 +36,15 @@ sub openPort() {
     my $port = new Device::SerialPort("/dev/kossel");
 
     if (!$port) {
-        die("Unable to open /dev/kossel: $!");
+        return 0;
     }
 
-    $port->baudrate(115200) || die("Unable to set baud rate: $!");
+    $port->baudrate(115200) || return 0;
     return $port;
 }
 
 sub resetPrinter() {
-    my $port = openPort();
+    my $port = openPort() || return;
     sleep(3);
     sendCommand($port, "M117 Print Server Ready.");
     $port->close();
@@ -53,13 +53,7 @@ sub resetPrinter() {
 sub sendFile($) {
     my $file = shift;
 
-    my $port = new Device::SerialPort("/dev/kossel");
-
-    if (!$port) {
-        die("Unable to open /dev/kossel: $!");
-    }
-
-    $port->baudrate(115200) || die("Unable to set baud rate: $!");
+    my $port = openPort() || return;
 
     my $ready = 0;
     while ($ready == 0) {
@@ -78,7 +72,7 @@ sub sendFile($) {
 
     sleep(1);
 
-    open(IN, "<$file") || die("Unable to open $file for reading: $!");
+    open(IN, "<$file") || return;
 
     my $totalLines = 0;
 
@@ -96,7 +90,7 @@ sub sendFile($) {
     my $thisLine = 0;
     my $lastPct = "";
 
-    open(IN, "<$file") || die("Unable to open $file for reading: $!");
+    open(IN, "<$file") || return;
 
     while (my $line = <IN>) {
         chomp($line);
@@ -109,9 +103,9 @@ sub sendFile($) {
             my $pcts = sprintf("M117 Printing...     %3d%", $pct);
             if ($pcts ne $lastPct) {
                 $lastPct = $pcts;
-                sendCommand($port, $pcts);
+                sendCommand($port, $pcts) || close(IN);
             }
-            sendCommand($port, $line);
+            sendCommand($port, $line) || close(IN);
         }
 
         # Check to see if the file went away. If it did then abort.
@@ -123,18 +117,19 @@ sub sendFile($) {
         }
     }
     close(IN);
+    sendCommand($port, "M117 Print Server Ready.");
     $port->close();
 }
 
 sub abort($) {
     my $port = shift;
-    sendCommand($port, "M117 Aborted");
-    sendCommand($port, "M107");
-    sendCommand($port, "M104 S0");
-    sendCommand($port, "M140 S0");
-    sendCommand($port, "G91");
-    sendCommand($port, "G1 E-1 F300");
-    sendCommand($port, "G28");
+    sendCommand($port, "M117 Aborted") || return;
+    sendCommand($port, "M107") || return;
+    sendCommand($port, "M104 S0") || return;
+    sendCommand($port, "M140 S0") || return;
+    sendCommand($port, "G91") || return;
+    sendCommand($port, "G1 E-1 F300") || return;
+    sendCommand($port, "G28") || return;
 }
 
 sub getLine($) {
@@ -152,14 +147,25 @@ sub getLine($) {
     return "";
 }
 
+sub fail($) {
+    my $msg = shift;
+    print "$msg\n";
+    return 0;
+}
+
 sub sendCommand($$) {
     my $port = shift;
     my $cmd = shift;
-    $port->write("$cmd\r") || die("Error sending code: $!");
+    $port->write("$cmd\r") || return fail("Error sending code: $!");
     my $ok = 0;
+    my $start = time();
     while ($ok == 0) {
+        if (time() - $start > 5) {
+            return fail("Error sending code: timeout");
+        }
         my $l = getLine($port);
         if ($l ne "") {
+            $start = time(); # It is alive.
             if ($l eq "ok") {
                 $ok = 1;
             }
@@ -168,5 +174,6 @@ sub sendCommand($$) {
             }
         }
     }
+    return 1;
 }
 
